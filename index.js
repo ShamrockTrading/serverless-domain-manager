@@ -167,8 +167,18 @@ class ServerlessCustomDomain {
       return this.migrateRecordType(domain);
     })
       .then(() => {
+        const service = this.serverless.service;
         const deploymentId = this.getDeploymentId();
-        this.addResources(deploymentId);
+        if(service.custom.customDomain.multipleBasePaths) {
+          const functions = service.functions;
+          for (let key in functions) {
+            if (!functions.hasOwnProperty(key)) continue;
+            const lambdaFunction = functions[key];
+            this.addResources(deploymentId, lambdaFunction.basePath);
+          }
+        } else {
+          this.addResources(deploymentId);
+        }
         this.addOutputs(domain);
       })
       .catch((err) => {
@@ -265,15 +275,16 @@ class ServerlessCustomDomain {
   /**
    *  Adds the custom domain, stage, and basepath to the resource section
    *  @param  deployId    Used to set the timing for creating the basepath
+   *  @param  basePath    Optional basePath to support multiple resources
    */
-  addResources(deployId) {
+  addResources(deployId, optionalBasePath) {
     const service = this.serverless.service;
 
     if (!service.custom.customDomain) {
       throw new Error('Error: check that the customDomain section is defined in serverless.yml');
     }
 
-    let basePath = service.custom.customDomain.basePath;
+    let basePath = optionalBasePath || service.custom.customDomain.basePath;
 
     // Check that basePath is either not set, or set to an empty string
     if (basePath == null || basePath.trim() === '') {
@@ -312,7 +323,6 @@ class ServerlessCustomDomain {
       this.serverless.cli.log(`Mapping custom domain to existing API ${service.provider.apiGateway.restApiId}.`);
       apiGatewayRef = service.provider.apiGateway.restApiId;
     }
-
     // Creates the pathmapping
     const pathmapping = {
       Type: 'AWS::ApiGateway::BasePathMapping',
@@ -324,9 +334,8 @@ class ServerlessCustomDomain {
         Stage: stage,
       },
     };
-
     // Creates and sets the resources
-    service.provider.compiledCloudFormationTemplate.Resources.pathmapping = pathmapping;
+    service.provider.compiledCloudFormationTemplate.Resources[basePath.replace('_', '') + 'pathmapping'] = pathmapping;
   }
 
   /**
